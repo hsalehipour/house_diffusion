@@ -11,7 +11,7 @@ import torch as th
 
 import io
 import PIL.Image as Image
-import drawSvg as drawsvg
+import drawsvg
 import cairosvg
 import imageio
 from tqdm import tqdm
@@ -30,8 +30,7 @@ import webcolors
 import networkx as nx
 from collections import defaultdict
 from shapely.geometry import Polygon
-from shapely.geometry.base import geom_factory
-from shapely.geos import lgeos
+from shapely import make_valid
 
 # import random
 # th.manual_seed(0)
@@ -137,9 +136,9 @@ def estimate_graph(indx, polys, nodes, G_gt, ID_COLOR, draw_graph, save_svg):
                 p1, p2 = polys[k], polys[l]
                 p1, p2 = Polygon(p1), Polygon(p2)
                 if not p1.is_valid:
-                    p1 = geom_factory(lgeos.GEOSMakeValid(p1._geom))
+                    p1 = make_valid(p1)
                 if not p2.is_valid:
-                    p2 = geom_factory(lgeos.GEOSMakeValid(p2._geom))
+                    p2 = make_valid(p2)
                 iou = p1.intersection(p2).area/ p1.union(p2).area
                 if iou > 0 and iou < 0.2:
                     doors_rooms_map[k].append((l, iou))
@@ -193,7 +192,7 @@ def save_samples(
         sample, ext, model_kwargs, 
         tmp_count, num_room_types, 
         save_gif=False, save_edges=False,
-        door_indices = [11, 12, 13], ID_COLOR=None,
+        door_indices = [17], ID_COLOR=None,  # RPLAN uses 17 for interior_door
         is_syn=False, draw_graph=False, save_svg=False):
     prefix = 'syn_' if is_syn else ''
     graph_errors = []
@@ -258,16 +257,16 @@ def save_samples(
                 for corner in poly:
                     draw.append(drawsvg.Circle(corner[0], corner[1], 2*(resolution/256), fill=ID_COLOR[room_type], fill_opacity=1.0, stroke='gray', stroke_width=0.25))
                     draw3.append(drawsvg.Circle(corner[0], corner[1], 2*(resolution/256), fill=ID_COLOR[room_type], fill_opacity=1.0, stroke='gray', stroke_width=0.25))
-            images.append(Image.open(io.BytesIO(cairosvg.svg2png(draw.asSvg()))))
-            images2.append(Image.open(io.BytesIO(cairosvg.svg2png(draw2.asSvg()))))
-            images3.append(Image.open(io.BytesIO(cairosvg.svg2png(draw3.asSvg()))))
+            images.append(Image.open(io.BytesIO(cairosvg.svg2png(draw.as_svg()))))
+            images2.append(Image.open(io.BytesIO(cairosvg.svg2png(draw2.as_svg()))))
+            images3.append(Image.open(io.BytesIO(cairosvg.svg2png(draw3.as_svg()))))
             if k==sample.shape[0]-1 or True:
                 if save_edges:
-                    draw.saveSvg(f'outputs/{ext}/{tmp_count+i}_{k}_{ext}.svg')
+                    draw.save_svg(f'outputs/{ext}/{tmp_count+i}_{k}_{ext}.svg')
                 if save_svg:
-                    draw_color.saveSvg(f'outputs/{ext}/{tmp_count+i}c_{k}_{ext}.svg')
-                else:
-                    Image.open(io.BytesIO(cairosvg.svg2png(draw_color.asSvg()))).save(f'outputs/{ext}/{tmp_count+i}c_{ext}.png')
+                    draw_color.save_svg(f'outputs/{ext}/{tmp_count+i}c_{k}_{ext}.svg')
+                # Always save PNG for FID calculation
+                Image.open(io.BytesIO(cairosvg.svg2png(draw_color.as_svg()))).save(f'outputs/{ext}/{tmp_count+i}.png')
             if k==sample.shape[0]-1:
                 if 'graph' in model_kwargs:
                     graph_errors.append(estimate_graph(tmp_count+i, polys, types, model_kwargs[f'{prefix}graph'][i], ID_COLOR=ID_COLOR, draw_graph=draw_graph, save_svg=save_svg))
@@ -307,10 +306,17 @@ def main():
         os.makedirs('outputs/graphs_pred', exist_ok=True)
 
         if args.dataset=='rplan':
-            ID_COLOR = {1: '#EE4D4D', 2: '#C67C7B', 3: '#FFD274', 4: '#BEBEBE', 5: '#BFE3E8',
-                        6: '#7BA779', 7: '#E87A90', 8: '#FF8C69', 10: '#1F849B', 11: '#727171',
-                        13: '#785A67', 12: '#D3A2C7'}
-            num_room_types = 14
+            # Ramon dataset room types: 1=living_room, 2=kitchen, 3=bedroom, 4=bathroom, 6=entrance, 10=storage, 17=interior_door
+            ID_COLOR = {
+                1: '#EE4D4D',   # living_room - red
+                2: '#C67C7B',   # kitchen - brown
+                3: '#FFD274',   # bedroom - yellow
+                4: '#BEBEBE',   # bathroom - gray
+                6: '#7BA779',   # entrance - green
+                10: '#1F849B',  # storage - blue
+                17: '#D3A2C7'   # interior_door - purple
+            }
+            num_room_types = 19
             data = load_rplanhg_data(
                 batch_size=args.batch_size,
                 analog_bit=args.analog_bit,
@@ -349,7 +355,9 @@ def main():
             graph_errors.extend(graph_error)
             tmp_count+=sample_gt.shape[1]
         logger.log("sampling complete")
-        fid_score = calculate_fid_given_paths(['outputs/gt', 'outputs/pred'], 64, 'cuda', 2048)
+        # Use smaller batch size for FID calculation to avoid errors with small datasets
+        fid_batch_size = min(args.num_samples, 32)
+        fid_score = calculate_fid_given_paths(['outputs/gt', 'outputs/pred'], fid_batch_size, 'cuda', 2048)
         print(f'FID: {fid_score}')
         print(f'Compatibility: {np.mean(graph_errors)}')
         errors.append([fid_score, np.mean(graph_errors)])
