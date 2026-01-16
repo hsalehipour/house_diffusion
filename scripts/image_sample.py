@@ -306,7 +306,7 @@ def main():
         os.makedirs('outputs/graphs_pred', exist_ok=True)
 
         if args.dataset=='rplan':
-            # Ramon dataset room types: 1=living_room, 2=kitchen, 3=bedroom, 4=bathroom, 6=entrance, 10=storage, 17=interior_door
+            # Hypergraph dataset room types: 1=living_room, 2=kitchen, 3=bedroom, 4=bathroom, 6=entrance, 10=storage, 17=interior_door
             ID_COLOR = {
                 1: '#EE4D4D',   # living_room - red
                 2: '#C67C7B',   # kitchen - brown

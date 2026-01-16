@@ -20,13 +20,17 @@ import copy
 def load_rplanhg_data(
     batch_size,
     analog_bit,
-    target_set = 8,
+    target_set = None,
     set_name = 'train',
 ):
     """
     For a dataset, create a generator over (shapes, kwargs) pairs.
+    target_set: None for no filtering, or int for specific room count
     """
-    print(f"loading {set_name} of target set {target_set}")
+    if target_set is None:
+        print(f"loading {set_name} (all room counts)")
+    else:
+        print(f"loading {set_name} of target set {target_set}")
     deterministic = False if set_name=='train' else True
     dataset = RPlanhgDataset(set_name, analog_bit, target_set)
     if deterministic:
@@ -94,10 +98,14 @@ class RPlanhgDataset(Dataset):
         self.org_graphs = []
         self.org_houses = []
         max_num_points = 100
+        
+        # Use "all" as identifier when target_set is None
+        target_set_str = "all" if target_set is None else str(target_set)
+        
         if self.set_name == 'eval':
-            cnumber_dist = np.load(f'processed_rplan/rplan_train_{target_set}_cndist.npz', allow_pickle=True)['cnumber_dist'].item()
-        if os.path.exists(f'processed_rplan/rplan_{set_name}_{target_set}.npz'):
-            data = np.load(f'processed_rplan/rplan_{set_name}_{target_set}.npz', allow_pickle=True)
+            cnumber_dist = np.load(f'processed_rplan/rplan_train_{target_set_str}_cndist.npz', allow_pickle=True)['cnumber_dist'].item()
+        if os.path.exists(f'processed_rplan/rplan_{set_name}_{target_set_str}.npz'):
+            data = np.load(f'processed_rplan/rplan_{set_name}_{target_set_str}.npz', allow_pickle=True)
             self.graphs = data['graphs']
             self.houses = data['houses']
             self.door_masks = data['door_masks']
@@ -105,9 +113,9 @@ class RPlanhgDataset(Dataset):
             self.gen_masks = data['gen_masks']
             self.num_coords = 2
             self.max_num_points = max_num_points
-            cnumber_dist = np.load(f'processed_rplan/rplan_train_{target_set}_cndist.npz', allow_pickle=True)['cnumber_dist'].item()
+            cnumber_dist = np.load(f'processed_rplan/rplan_train_{target_set_str}_cndist.npz', allow_pickle=True)['cnumber_dist'].item()
             if self.set_name == 'eval':
-                data = np.load(f'processed_rplan/rplan_{set_name}_{target_set}_syn.npz', allow_pickle=True)
+                data = np.load(f'processed_rplan/rplan_{set_name}_{target_set_str}_syn.npz', allow_pickle=True)
                 self.syn_graphs = data['graphs']
                 self.syn_houses = data['houses']
                 self.syn_door_masks = data['door_masks']
@@ -122,10 +130,14 @@ class RPlanhgDataset(Dataset):
                 file_name = f'{base_dir}/{line[:-1]}'
                 rms_type, fp_eds,rms_bbs,eds_to_rms=reader(file_name) 
                 fp_size = len([x for x in rms_type if x != 15 and x != 17])
-                if self.set_name=='train' and fp_size == target_set:
-                        continue
-                if self.set_name=='eval' and fp_size != target_set:
-                        continue
+                
+                # Apply filtering only if target_set is specified
+                if target_set is not None:
+                    if self.set_name=='train' and fp_size == target_set:
+                            continue
+                    if self.set_name=='eval' and fp_size != target_set:
+                            continue
+                
                 a = [rms_type, rms_bbs, fp_eds, eds_to_rms]
                 self.subgraphs.append(a)
             for graph in tqdm(self.subgraphs):
@@ -238,10 +250,10 @@ class RPlanhgDataset(Dataset):
             self.num_coords = 2
             self.graphs = graphs
 
-            np.savez_compressed(f'processed_rplan/rplan_{set_name}_{target_set}', graphs=self.graphs, houses=self.houses,
+            np.savez_compressed(f'processed_rplan/rplan_{set_name}_{target_set_str}', graphs=self.graphs, houses=self.houses,
                     door_masks=self.door_masks, self_masks=self.self_masks, gen_masks=self.gen_masks)
             if self.set_name=='train':
-                np.savez_compressed(f'processed_rplan/rplan_{set_name}_{target_set}_cndist', cnumber_dist=cnumber_dist)
+                np.savez_compressed(f'processed_rplan/rplan_{set_name}_{target_set_str}_cndist', cnumber_dist=cnumber_dist)
 
             if set_name=='eval':
                 houses = []
@@ -309,7 +321,7 @@ class RPlanhgDataset(Dataset):
                 self.syn_self_masks = self_masks
                 self.syn_gen_masks = gen_masks
                 self.syn_graphs = graphs
-                np.savez_compressed(f'processed_rplan/rplan_{set_name}_{target_set}_syn', graphs=self.syn_graphs, houses=self.syn_houses,
+                np.savez_compressed(f'processed_rplan/rplan_{set_name}_{target_set_str}_syn', graphs=self.syn_graphs, houses=self.syn_houses,
                         door_masks=self.syn_door_masks, self_masks=self.syn_self_masks, gen_masks=self.syn_gen_masks)
 
     def __len__(self):

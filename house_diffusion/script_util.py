@@ -19,7 +19,7 @@ def diffusion_defaults():
         predict_xstart=False,
         rescale_timesteps=False,
         rescale_learned_sigmas=False,
-        target_set=-1,
+        target_set=None,
         set_name='',
     )
 
